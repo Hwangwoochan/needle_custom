@@ -895,7 +895,7 @@ LANGUAGES = [
     "Estonian", "Finnish", "French", "German", "Greek", "Hungarian",
     "Italian", "Latvian", "Lithuanian", "Maltese", "Polish",
     "Portuguese", "Romanian", "Slovak", "Slovenian", "Spanish",
-    "Swedish", "Russian", "Ukrainian",
+    "Swedish", "Russian", "Ukrainian", "Korean",
 ]
 
 MAX_TOOLS = 10

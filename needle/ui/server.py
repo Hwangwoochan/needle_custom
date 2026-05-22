@@ -24,6 +24,7 @@ _MAX_MAX_GEN_LEN = 4096
 _MAX_JSON_BYTES = 1024 * 1024
 _MAX_UPLOAD_BYTES = 512 * 1024 * 1024
 _SOCKET_TIMEOUT = 30
+_CUSTOM_FINETUNE_LANGUAGE = "Korean"
 
 _model = None
 _params = None
@@ -286,7 +287,7 @@ def _generate_custom_data(tools_json, api_key, num_samples, data_file):
             gd._pick_tools = _pick_tools
             gd._synthesize_tools = _synthesize_tools
             gd._OVERLAP_PAIRS = []
-            gd.LANGUAGES = ["English"]
+            gd.LANGUAGES = [_CUSTOM_FINETUNE_LANGUAGE]
             client_pool = gd.ClientPool(gd.make_clients())
             examples = gd.generate_all(
                 num_samples,
@@ -297,7 +298,7 @@ def _generate_custom_data(tools_json, api_key, num_samples, data_file):
             )
             with open(data_file, "w") as f:
                 for ex in examples:
-                    f.write(json.dumps(ex) + "\n")
+                    f.write(json.dumps(ex, ensure_ascii=False) + "\n")
             return len(examples)
         finally:
             gd._pick_tools = old_pick_tools
@@ -542,10 +543,19 @@ def _start_finetune(tools_json, api_key):
         try:
             num_tools = len(_json.loads(tools_json))
             num_samples = _SAMPLES_PER_TOOL * num_tools
+            ckpt_dir = _checkpoints_dir()
+            generated_dir = ckpt_dir / "generated_data"
+            generated_dir.mkdir(parents=True, exist_ok=True)
+            run_ts = time.strftime("%Y%m%d_%H%M%S")
+            generated_snapshot_path = generated_dir / f"needle_custom_korean_generated_{run_ts}.jsonl"
 
             _set_finetune_status(step="generating data")
-            _append_finetune_log(f"Generating {_SAMPLES_PER_TOOL} samples/tool for {num_tools} tools...")
+            _append_finetune_log(
+                f"Generating {_SAMPLES_PER_TOOL} Korean samples/tool for {num_tools} tools..."
+            )
             generated = _generate_custom_data(tools_json, api_key, num_samples, data_file)
+            shutil.copy2(data_file, generated_snapshot_path)
+            _append_finetune_log(f"Saved generated JSONL: {generated_snapshot_path}")
             if generated < 3:
                 raise RuntimeError("generated fewer than 3 examples; need more data for train/val/test")
             _append_finetune_log(f"Generated {generated} samples.")
@@ -568,7 +578,6 @@ def _start_finetune(tools_json, api_key):
             _set_finetune_status(step="training")
             checkpoint_arg = []
             ckpt_name = "scratch"
-            ckpt_dir = _checkpoints_dir()
             existing_pkls = set()
             if ckpt_dir.exists():
                 existing_pkls = set(p.name for p in ckpt_dir.glob("*.pkl"))
@@ -669,6 +678,8 @@ def _start_finetune(tools_json, api_key):
             eval_report = {
                 "model": ckpt_name,
                 "finetuned_checkpoint": final_name,
+                "generated_jsonl": str(generated_snapshot_path),
+                "generation_language": _CUSTOM_FINETUNE_LANGUAGE,
                 "training": {"examples": len(train_examples), "tools": num_tools, "epochs": _EPOCHS},
                 "validation": {"examples": len(val_examples)},
                 "test": {"examples": len(test_examples), "duplicates": validation.get("duplicates", 0)},
@@ -686,6 +697,8 @@ def _start_finetune(tools_json, api_key):
                 f"# Needle Finetuned Model\n\n"
                 f"## Training\n"
                 f"- Base model: {ckpt_name}\n"
+                f"- Generated data language: {_CUSTOM_FINETUNE_LANGUAGE}\n"
+                f"- Generated JSONL: {generated_snapshot_path.name}\n"
                 f"- Epochs: {_EPOCHS}\n"
                 f"- Training examples: {len(train_examples)}\n"
                 f"- Validation examples: {len(val_examples)} (used for checkpoint selection)\n"
@@ -702,6 +715,7 @@ def _start_finetune(tools_json, api_key):
                 f"## Contents\n"
                 f"- `checkpoint.pkl` — Finetuned model weights\n"
                 f"- `tools.json` — Tool definitions\n"
+                f"- `generated.jsonl` — Full generated dataset before train/val/test split\n"
                 f"- `train.jsonl` — Training data ({len(train_examples)} examples)\n"
                 f"- `val.jsonl` — Validation data ({len(val_examples)} examples)\n"
                 f"- `test.jsonl` — Test data ({len(test_examples)} examples)\n"
@@ -713,6 +727,7 @@ def _start_finetune(tools_json, api_key):
             with zipfile.ZipFile(str(bundle_path), "w", zipfile.ZIP_DEFLATED) as zf:
                 zf.write(str(final_path), "checkpoint.pkl")
                 zf.writestr("tools.json", tools_json)
+                zf.write(str(generated_snapshot_path), "generated.jsonl")
                 zf.writestr("train.jsonl", "\n".join(_json.dumps(ex) for ex in train_examples) + "\n")
                 zf.writestr("val.jsonl", "\n".join(_json.dumps(ex) for ex in val_examples) + "\n")
                 zf.writestr("test.jsonl", "\n".join(_json.dumps(ex) for ex in test_examples) + "\n")
