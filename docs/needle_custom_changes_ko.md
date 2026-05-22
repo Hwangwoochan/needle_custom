@@ -101,6 +101,45 @@ generated.jsonl
 - 한국어 query가 제대로 생성되는지 확인하기 위함
 - 잘못된 tool call, hallucinated argument, duplicate query 등을 분석하기 위함
 
+### 4. Playground finetune을 기본 CPU 실행으로 변경
+
+커밋:
+
+- 작업 중
+
+파일:
+
+- `needle/ui/server.py`
+
+변경 내용:
+
+- Playground finetune subprocess에서 기본적으로 CPU JAX backend를 사용
+- 기본 finetune batch size를 `8`로 낮춤
+- XLA GPU preallocation을 끔
+
+이유:
+
+- 한국어 데이터 생성 후 base model 평가 단계에서 CUDA OOM이 발생할 수 있음
+- 일부 개발 환경에서는 `nvidia-smi`가 실패하거나 JAX가 GPU 메모리를 과하게 잡아 finetune 시작 전에 실패함
+- small custom finetune 실험은 CPU로도 느리지만 재현성 있게 진행 가능함
+
+환경변수로 조정 가능:
+
+```bash
+# GPU 사용을 허용하고 싶을 때
+export NEEDLE_CUSTOM_FINETUNE_FORCE_CPU=0
+
+# 기본 batch size를 바꾸고 싶을 때
+export NEEDLE_CUSTOM_FINETUNE_BATCH_SIZE=4
+```
+
+기본값:
+
+```text
+NEEDLE_CUSTOM_FINETUNE_FORCE_CPU=1
+NEEDLE_CUSTOM_FINETUNE_BATCH_SIZE=8
+```
+
 ## 현재 실행 흐름
 
 Playground에서 `Finetune on these tools`를 누르면 다음 순서로 동작한다.
@@ -115,6 +154,8 @@ Playground에서 `Finetune on these tools`를 누르면 다음 순서로 동작�
 8. 기존 `needle.pkl`에서 finetune
 9. base model과 finetuned model 평가
 10. checkpoint와 데이터 bundle zip 생성
+
+현재 커스텀 브랜치에서는 8-10 단계가 기본적으로 CPU에서 실행된다.
 
 ## 생성 데이터 확인 방법
 
@@ -202,4 +243,3 @@ upstream https://github.com/cactus-compute/needle.git
 ```text
 custom-korean-local-finetune
 ```
-

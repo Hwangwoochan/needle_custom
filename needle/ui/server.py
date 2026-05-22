@@ -25,6 +25,8 @@ _MAX_JSON_BYTES = 1024 * 1024
 _MAX_UPLOAD_BYTES = 512 * 1024 * 1024
 _SOCKET_TIMEOUT = 30
 _CUSTOM_FINETUNE_LANGUAGE = "Korean"
+_FINETUNE_FORCE_CPU = os.environ.get("NEEDLE_CUSTOM_FINETUNE_FORCE_CPU", "1") != "0"
+_FINETUNE_BATCH_SIZE = int(os.environ.get("NEEDLE_CUSTOM_FINETUNE_BATCH_SIZE", "8"))
 
 _model = None
 _params = None
@@ -584,11 +586,22 @@ def _start_finetune(tools_json, api_key):
             if _current_model_path:
                 checkpoint_arg = ["--checkpoint", _current_model_path]
                 ckpt_name = Path(_current_model_path).name
-            batch_size = min(32, generated)
+            batch_size = min(_FINETUNE_BATCH_SIZE, generated)
             _append_finetune_log(
                 f"Training {_EPOCHS} epochs, batch_size={batch_size}, "
                 f"{generated} examples, from {ckpt_name}"
             )
+            train_env = os.environ.copy()
+            train_env.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
+            train_env.setdefault("XLA_PYTHON_CLIENT_MEM_FRACTION", "0.50")
+            if _FINETUNE_FORCE_CPU:
+                train_env["JAX_PLATFORMS"] = "cpu"
+                train_env["JAX_PLATFORM_NAME"] = "cpu"
+                train_env["CUDA_VISIBLE_DEVICES"] = ""
+                _append_finetune_log(
+                    "Running finetune subprocess on CPU "
+                    "(set NEEDLE_CUSTOM_FINETUNE_FORCE_CPU=0 to allow GPU)."
+                )
 
             _set_finetune_status(step="evaluating base")
             last_eval = None
@@ -607,6 +620,7 @@ def _start_finetune(tools_json, api_key):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                env=train_env,
             )
             try:
                 for line in proc.stdout:
